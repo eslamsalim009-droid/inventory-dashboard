@@ -435,26 +435,57 @@ function startCD(ms){
 function scheduleRefresh(){if(rfTmr)clearTimeout(rfTmr);rfTmr=setTimeout(fetchLive,REFRESH_MS);startCD(REFRESH_MS);}
 
 var lastHash=null;
-function fetchLive(){
+function fetchLive() {
   setLiveBar("sync");
-  var url=API_URL+(API_URL.indexOf("?")>=0?"&":"?")+"cb="+Date.now();
-  fetch(url,{cache:"no-store"})
-    .then(function(res){if(!res.ok)throw new Error("HTTP "+res.status);return res.json();})
-    .then(function(json){
-      if(!json||!json.data||!json.data.length)throw new Error("empty");
-      var hstr=json.count+"_"+(json.data[0]?JSON.stringify(json.data[0]).slice(0,100):"");
-      var hh=5381;for(var i=0;i<hstr.length;i++)hh=((hh<<5)+hh+hstr.charCodeAt(i))|0;
-      if(hh!==lastHash){
-        lastHash=hh;
-        raw=normalise(json.data);
-        var f=document.getElementById("foot");
-        if(f)f.textContent="Google Sheets \u00b7 "+t("updated")+" "+new Date().toLocaleString(lang==="ar"?"ar-SA":"en-GB");
-        buildFilters();applyF();flashKPIs();
+  var cbName = "inv_cb_" + Date.now();
+  var tmr = setTimeout(function() {
+    cleanupJSONP(cbName);
+    setLiveBar("off");
+    scheduleRefresh();
+  }, 15000);
+  window[cbName] = function(json) {
+    clearTimeout(tmr);
+    cleanupJSONP(cbName);
+    try {
+      if (!json || !json.data || !json.data.length) throw new Error("empty");
+      var hstr = json.count + "_" + JSON.stringify(json.data[0]).slice(0,100);
+      var hh = 5381;
+      for (var i=0; i<hstr.length; i++) hh = ((hh<<5)+hh+hstr.charCodeAt(i))|0;
+      if (hh !== lastHash) {
+        lastHash = hh;
+        raw = normalise(json.data);
+        var f = document.getElementById("foot");
+        if (f) f.textContent = "Google Sheets \u00b7 " + t("updated") + " " +
+          new Date().toLocaleString(lang==="ar"?"ar-SA":"en-GB");
+        buildFilters(); applyF(); flashKPIs();
       }
-      setLiveBar("live");scheduleRefresh();
-    })
-    .catch(function(err){console.warn("Live:",err.message);setLiveBar("off");scheduleRefresh();});
+      setLiveBar("live");
+      scheduleRefresh();
+    } catch(e) {
+      console.warn("JSONP:", e.message);
+      setLiveBar("off");
+      scheduleRefresh();
+    }
+  };
+  var s = document.createElement("script");
+  s.id = "jsonp-s";
+  s.src = API_URL + (API_URL.indexOf("?")>=0?"&":"?") +
+          "callback=" + cbName + "&cb=" + Date.now();
+  s.onerror = function() {
+    clearTimeout(tmr);
+    cleanupJSONP(cbName);
+    setLiveBar("off");
+    scheduleRefresh();
+  };
+  document.head.appendChild(s);
 }
+
+function cleanupJSONP(cbName) {
+  delete window[cbName];
+  var s = document.getElementById("jsonp-s");
+  if (s && s.parentNode) s.parentNode.removeChild(s);
+}
+
 
 function manualRefresh(){
   if(rfTmr)clearTimeout(rfTmr);
